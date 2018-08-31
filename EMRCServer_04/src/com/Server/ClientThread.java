@@ -285,25 +285,161 @@ public class ClientThread extends Thread {
 
 	private String DateInput() {
 		String Path = null;
+		// C:\AppServ\www\image\photo
+		Path = "C:/AppServ/www/image/photo/" + getCalendar() + ".jpg";
+		Adler32 inChecker = new Adler32();
+		Adler32 outChecker = new Adler32();
+		CheckedDataInput in = null;
+		CheckedDataOutput out = null;
 		try {
-			// C:\AppServ\www\image\photo
-			Path = "C:/AppServ/www/image/photo/" + getCalendar() + ".jpg";
-			FileOutputStream fos = new FileOutputStream(new File(Path));
 			DataInputStream dis = new DataInputStream(_skt.getInputStream());
 			int size = dis.readInt();
-			// print(nickName + " > " +"Size:" + size);
-
+			in = new CheckedDataInput(new DataInputStream(_skt.getInputStream()), inChecker);
+			out = new CheckedDataOutput(new DataOutputStream(new FileOutputStream(new File(Path))), outChecker);
 			byte[] data = new byte[size];
-			int len = 0;
-			while (len < size) {
-				len += dis.read(data, len, size - len);
-			}
-			fos.write(data, 0, len);
-			fos.close();
+			in.readFully(data);
+			out.write(data);
 		} catch (IOException e) {
 			print(nickName + " > " + "ERR-DateInput:" + e.toString());
 		}
 		return Path;
+	}
+
+	class Adler32 implements Checksum {
+		private int value = 1;
+
+		/*
+		 * BASE is the largest prime number smaller than 65536 NMAX is the
+		 * largest n such that 255n(n+1)/2 + (n+1)(BASE-1) <= 2^32-1
+		 */
+		private static final int BASE = 65521;
+		private static final int NMAX = 5552;
+
+		/**
+		 * Update current Adler-32 checksum given the specified byte.
+		 */
+		public void update(int b) {
+			int s1 = value & 0xffff;
+			int s2 = (value >> 16) & 0xffff;
+			s1 += b & 0xff;
+			s2 += s1;
+			value = ((s2 % BASE) << 16) | (s1 % BASE);
+		}
+
+		/**
+		 * Update current Adler-32 checksum given the specified byte array.
+		 */
+		public void update(byte[] b, int off, int len) {
+			int s1 = value & 0xffff;
+			int s2 = (value >> 16) & 0xffff;
+
+			while (len > 0) {
+				int k = len < NMAX ? len : NMAX;
+				len -= k;
+				while (k-- > 0) {
+					s1 += b[off++] & 0xff;
+					s2 += s1;
+				}
+				s1 %= BASE;
+				s2 %= BASE;
+			}
+			value = (s2 << 16) | s1;
+		}
+
+		/**
+		 * Reset Adler-32 checksum to initial value.
+		 */
+		public void reset() {
+			value = 1;
+		}
+
+		/**
+		 * Returns current checksum value.
+		 */
+		public long getValue() {
+			return (long) value & 0xffffffff;
+		}
+	}
+
+	interface Checksum {
+		/**
+		 * Updates the current checksum with the specified byte.
+		 */
+		public void update(int b);
+
+		/**
+		 * Updates the current checksum with the specified array of bytes.
+		 */
+		public void update(byte[] b, int off, int len);
+
+		/**
+		 * Returns the current checksum value.
+		 */
+		public long getValue();
+
+		/**
+		 * Resets the checksum to its initial value.
+		 */
+		public void reset();
+	}
+
+	class CheckedDataOutput {
+		private Checksum cksum;
+		private DataOutput out;
+
+		public CheckedDataOutput(DataOutput out, Checksum cksum) {
+			this.cksum = cksum;
+			this.out = out;
+		}
+
+		public void write(int b) throws IOException {
+			out.write(b);
+			cksum.update(b);
+		}
+
+		public void write(byte[] b) throws IOException {
+			out.write(b, 0, b.length);
+			cksum.update(b, 0, b.length);
+		}
+
+		public void write(byte[] b, int off, int len) throws IOException {
+			out.write(b, off, len);
+			cksum.update(b, off, len);
+		}
+
+		public Checksum getChecksum() {
+			return cksum;
+		}
+	}
+
+	class CheckedDataInput {
+		private Checksum cksum;
+		private DataInput in;
+
+		public CheckedDataInput(DataInput in, Checksum cksum) {
+			this.cksum = cksum;
+			this.in = in;
+		}
+
+		public byte readByte() throws IOException {
+			byte b = in.readByte();
+			cksum.update(b);
+			return b;
+		}
+
+		public void readFully(byte[] b) throws IOException {
+			in.readFully(b, 0, b.length);
+			cksum.update(b, 0, b.length);
+		}
+
+		public void readFully(byte[] b, int off, int len) throws IOException {
+			in.readFully(b, off, len);
+			cksum.update(b, off, len);
+		}
+
+		public Checksum getChecksum() {
+			return cksum;
+		}
 	}
 
 	private void setMSG_toCAR() {
